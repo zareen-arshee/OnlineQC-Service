@@ -1,0 +1,118 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  annotations:
+    kubernetes.io/change-cause: Updated to Latest Image version
+  labels:
+    app: onlineqc-service
+  name: onlineqc-service
+spec:
+  minReadySeconds: 5
+  replicas: 1
+  revisionHistoryLimit: 10
+  selector:
+    matchLabels:
+      app: onlineqc-service
+  strategy:
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+    type: RollingUpdate
+  template:
+    metadata:
+      labels:
+        app: onlineqc-service
+    spec:
+      nodeSelector:
+        nodename: app-reserve-node
+      tolerations:
+      - effect: NoSchedule
+        key: nodetaints
+        operator: Equal
+        value: reserve-nodegroup      
+      containers:
+        - image: '${parameters.image}:${tag}'
+          imagePullPolicy: IfNotPresent
+          lifecycle:
+            preStop:
+              exec:
+                command:
+                  - sleep
+                  - '60'
+          env:
+           - name: DB_URL
+             valueFrom:
+              configMapKeyRef:
+                name: purbasha-qms-config-map
+                key: DB_URL
+           - name: DB_PORT
+             valueFrom:
+              configMapKeyRef:
+                name: purbasha-qms-config-map
+                key: DB_PORT
+           - name: DB_USERNAME
+             valueFrom:
+              configMapKeyRef:
+                name: purbasha-qms-config-map
+                key: DB_USERNAME
+           - name: DB_PASSWORD
+             valueFrom:
+              configMapKeyRef:
+                name: purbasha-qms-config-map
+                key: DB_PASSWORD                  
+           - name: ONLINEQC_DB_NAME
+             valueFrom:
+              configMapKeyRef:
+                name: purbasha-qms-config-map
+                key: ONLINEQC_DB_NAME 
+           - name: SPRING_APPLICATION_JSON
+             valueFrom:
+               configMapKeyRef:
+                 key: onlineqc.spring.config.json
+                 name: purbasha-qms-config-map                                
+          name:  onlineqc-service
+          ports:
+            - containerPort: 8085
+          resources:
+            limits:
+              cpu: 500m
+              memory: 512Mi
+            requests:
+              cpu: 200m
+              memory: 256Mi
+      imagePullSecrets:
+        - name: ecr-registry-us-east-1
+      securityContext:
+        fsGroup: 33
+      terminationGracePeriodSeconds: 65
+---
+apiVersion: autoscaling/v2beta1
+kind: HorizontalPodAutoscaler
+metadata:
+  name: onlineqc-service-hpa
+spec:
+  maxReplicas: 2
+  metrics:
+    - resource:
+        name: cpu
+        targetAverageUtilization: 80
+      type: Resource
+  minReplicas: 1
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: onlineqc-service
+---
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    name: onlineqc-service-service
+  name: onlineqc-service-service
+spec:
+  ports:
+    - port: 80
+      protocol: TCP
+      targetPort: 8085
+  selector:
+    app: onlineqc-service
